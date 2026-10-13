@@ -1,6 +1,6 @@
 # @arki/money
 
-Published version: **0.0.0-stage**
+Published version: **0.0.4**
 
 This repository is a **read-only mirror** of the [@arki/money](https://www.npmjs.com/package/@arki/money) npm package.
 
