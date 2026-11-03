@@ -16,6 +16,17 @@ export declare const MAX_SCALE = 100;
 export declare const MAX_INPUT_LENGTH = 1000;
 /** Largest number of parts `allocate` and `split` produce. */
 export declare const MAX_PARTS = 10000;
+/**
+ * Largest amount, in decimal digits. An amount reaches this through repeated
+ * `times` or a huge bigint, and past it a bigint product can crash Hermes with a
+ * raw `RangeError`. Checked as hexadecimal digits, which is linear-time: 8 305 of
+ * them hold 33 220 bits, which is 10 000 decimal digits.
+ */
+export declare const MAX_DIGITS = 10000;
+/** Whether a `bigint` has more than {@link MAX_DIGITS} decimal digits. */
+export declare function exceedsDigits(value: bigint): boolean;
+/** Whether `a × b` could pass {@link MAX_DIGITS}, the same test `mulUnits` throws `ResourceLimitError` on. */
+export declare function productExceedsDigits(a: Units, b: Units): boolean;
 /** Brings a `bigint` to canonical form. */
 export declare function canon(value: bigint): Units;
 /** `10^exponent` in canonical form. `exponent` is a small non-negative integer. */
@@ -47,16 +58,25 @@ export type Parsed = {
 };
 /**
  * Reads plain decimal text: an optional sign, digits, an optional fraction, an
- * optional exponent. No grouping, no spaces, no `Infinity`. Throws
- * `NumberFormatError` otherwise.
+ * optional exponent. No grouping, no spaces, no `Infinity`. Returns
+ * `InvalidMoneyText` otherwise, and `InputTooLarge` past the length or exponent limit.
  */
-export declare function parseDecimal(text: string): Parsed;
+export declare function parseDecimal(text: string): import("@arki/failure").Failure<"money.input_too_large", undefined> | import("@arki/failure").Failure<"money.invalid_text", undefined> | Parsed;
 /**
  * Reads a JS number through its shortest decimal spelling, so `19.99` means
  * exactly 19.99 — what was typed, not the binary approximation. It cannot undo
  * earlier float arithmetic: `0.1 + 0.2` arrives as `0.30000000000000004`.
+ * `NaN`, infinities and integers past 2^53 (their digits are already lost) return `AmountOutOfRange`.
  */
-export declare function parseNumber(value: number): Parsed;
+export declare function parseNumber(value: number): import("@arki/failure").Failure<"money.input_too_large", undefined> | import("@arki/failure").Failure<"money.invalid_text", undefined> | import("@arki/failure").Failure<"money.out_of_range", undefined> | Parsed;
+/**
+ * Whole minor units from a safe-integer `number`, a `bigint`, or integer text (as
+ * databases return `BIGINT`). Returns `AmountOutOfRange` for an unsafe or fractional
+ * number, `InputTooLarge` past the digit or length limit, `InvalidMoneyText` otherwise.
+ */
+export declare function toUnits(value: number | bigint | string): import("@arki/failure").Failure<"money.input_too_large", undefined> | import("@arki/failure").Failure<"money.invalid_text", undefined> | import("@arki/failure").Failure<"money.out_of_range", undefined> | Units;
+/** Whether `coefficient × 10^-fraction` has no digits past `scale` decimals, so moving it there needs no rounding. */
+export declare function isExactAtScale(coefficient: Units, fraction: number, scale: number): boolean;
 /** Throws `DivisionByZeroError` for a zero divisor. */
 export declare function assertNonZero(value: Units): void;
 /** Greatest common divisor of two non-negative values, in canonical form. */

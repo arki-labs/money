@@ -1,0 +1,119 @@
+[
+  {
+    "code": "ARKI_MONEY_E001",
+    "package": "@arki/money",
+    "kind": "thrown",
+    "what": "Two amounts in different currencies were combined or compared.",
+    "fix": "Convert both amounts to one currency first with `@arki/money/exchange`, then combine them.",
+    "verify": "cd packages/money && bun run vitest run src/errors.test.ts",
+    "source": "src/errors.ts:35"
+  },
+  {
+    "code": "ARKI_MONEY_E002",
+    "package": "@arki/money",
+    "kind": "thrown",
+    "what": "The currency code is not in the ISO 4217 table and no custom currency was given.",
+    "fix": "Use an ISO 4217 code, or pass a `Currency.custom({ code, scale })` object instead of a code.",
+    "verify": "cd packages/money && bun run vitest run src/errors.test.ts",
+    "source": "src/errors.ts:42"
+  },
+  {
+    "code": "ARKI_MONEY_E003",
+    "package": "@arki/money",
+    "kind": "thrown",
+    "what": "No exchange rate is known for the pair, or a rate is invalid.",
+    "fix": "Pass a rate for the pair, or opt in to `inverse` or `via` on the converter. Rates must be positive.",
+    "verify": "cd packages/money && bun run vitest run src/exchange.test.ts",
+    "source": "src/errors.ts:49"
+  },
+  {
+    "code": "ARKI_MONEY_E004",
+    "package": "@arki/money",
+    "kind": "thrown",
+    "what": "An amount cannot be expressed in a payment provider's units.",
+    "fix": "Round the amount to the provider's step first, or choose a currency the provider documents.",
+    "verify": "cd packages/money && bun run vitest run src/stripe.test.ts",
+    "source": "src/errors.ts:56"
+  },
+  {
+    "code": "money.input_too_large",
+    "package": "@arki/money",
+    "kind": "failure",
+    "what": "The input is longer than the package reads: text over 1000 characters, an exponent or fraction that is too large, or a number with more than about 10 000 digits.",
+    "fix": "Refuse the input at your boundary. Real amounts are far shorter than these limits.",
+    "verify": "cd packages/money && bun run vitest run src/failures.test.ts",
+    "source": "src/failures.ts:83"
+  },
+  {
+    "code": "money.invalid_rate",
+    "package": "@arki/money",
+    "kind": "failure",
+    "what": "A rate read from a feed is not usable: it is zero or negative, or a rate from a currency to itself is not 1. Thrown builders raise `ExchangeRateError` for the same fault.",
+    "fix": "Check the feed. A rate is how many units of the quote currency one unit of the base buys, always above 0.",
+    "verify": "cd packages/money && bun run vitest run src/exchange.test.ts",
+    "source": "src/failures.ts:121"
+  },
+  {
+    "code": "money.invalid_shape",
+    "package": "@arki/money",
+    "kind": "failure",
+    "what": "The value has a different shape than `{ amount: string, currency: string }`.",
+    "fix": "Send `{ amount, currency }` with both fields as strings, as `Money#toJSON()` writes them.",
+    "verify": "cd packages/money && bun run vitest run src/failures.test.ts",
+    "source": "src/failures.ts:33"
+  },
+  {
+    "code": "money.invalid_text",
+    "package": "@arki/money",
+    "kind": "failure",
+    "what": "The text is not an amount of money in the expected format: wrong characters, misplaced grouping, a different currency's symbol, two signs, mixed digit scripts.",
+    "fix": "Show the person the expected format, for example `19.99 EUR`. Do not guess a repair.",
+    "verify": "cd packages/money && bun run vitest run src/failures.test.ts",
+    "source": "src/failures.ts:20"
+  },
+  {
+    "code": "money.out_of_range",
+    "package": "@arki/money",
+    "kind": "failure",
+    "what": "A number is not a safe whole number of minor units: it is fractional, not finite, or past 2^53.",
+    "fix": "Send minor units as a string or bigint when they may pass 2^53, and never send a fraction.",
+    "verify": "cd packages/money && bun run vitest run src/failures.test.ts",
+    "source": "src/failures.ts:70"
+  },
+  {
+    "code": "money.provider_amount",
+    "package": "@arki/money",
+    "kind": "failure",
+    "what": "A payment provider amount cannot be read as money: it is not a multiple of the provider's step, it carries a fraction the currency does not have, or the provider has no unit rule for the currency.",
+    "fix": "Check the provider's amount and currency. Never round a provider amount to make it fit.",
+    "verify": "cd packages/money && bun run vitest run src/failures.test.ts",
+    "source": "src/failures.ts:108"
+  },
+  {
+    "code": "money.rounding_necessary",
+    "package": "@arki/money",
+    "kind": "failure",
+    "what": "The amount has more decimals than the currency or scale allows, and no rounding mode was given.",
+    "fix": "Ask for an amount with fewer decimals, or pass an explicit `rounding` mode to the parser.",
+    "verify": "cd packages/money && bun run vitest run src/failures.test.ts",
+    "source": "src/failures.ts:58"
+  },
+  {
+    "code": "money.unknown_currency",
+    "package": "@arki/money",
+    "kind": "failure",
+    "what": "The currency code or number is not in the ISO 4217 table and no custom currency was listed for it. Thrown builders raise `UnknownCurrencyError` (`ARKI_MONEY_E002`) for the same fault.",
+    "fix": "Use an ISO 4217 code in upper case, or pass the custom `Currency` objects you accept.",
+    "verify": "cd packages/money && bun run vitest run src/failures.test.ts",
+    "source": "src/failures.ts:46"
+  },
+  {
+    "code": "money.unsupported_locale",
+    "package": "@arki/money",
+    "kind": "failure",
+    "what": "The locale tag is not valid, so the runtime's `Intl` cannot give its number format.",
+    "fix": "Pass a well-formed BCP 47 tag such as `de-DE`, or pass `symbols` to parse without `Intl`.",
+    "verify": "cd packages/money && bun run vitest run src/failures.test.ts",
+    "source": "src/failures.ts:95"
+  }
+]

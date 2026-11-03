@@ -9,18 +9,22 @@
  *   compiler already rejects it: `Money<'EUR'>` cannot be added to `Money<'USD'>`.
  * - `allocate` and `split` return parts that add back to the whole exactly.
  * - A `Money` never becomes a float by accident: `+price` throws.
+ * - Builders (`money`, `Money.of`, `Money.fromMinor`) throw on bad input, because
+ *   their input is your code's. Outside values go through `Money.parse`,
+ *   `Money.fromJSON` or `parseMoney`, which return a failure from `failures.ts`.
  *
  * Speed: units are a plain `number` while they are a safe integer (up to 90
  * trillion in a two-decimal currency) and a `bigint` only beyond that. Values
  * are immutable through `readonly` and a private constructor; they are not
  * frozen, because `Object.freeze` costs more per operation than the arithmetic.
  */
-import { DivisionByZeroError, EmptyDataError, InvalidArgumentError, NumberFormatError, NumericRangeError, ResourceLimitError, RoundingNecessaryError, } from '@arki/math/errors';
-import { assertSameCurrency, resolveCurrency, toCurrency } from './currency.js';
-import { addUnits, canon, compareUnits, MAX_INPUT_LENGTH, MAX_PARTS, MAX_SCALE, mulDiv, mulUnits, negUnits, parseDecimal, parseNumber, pow10, quantize, } from './internal/units.js';
+import { DivisionByZeroError, EmptyDataError, InvalidArgumentError, NumericRangeError, ResourceLimitError, RoundingNecessaryError, } from '@arki/math/errors';
+import { assertSameCurrency, Currency, toCurrency } from './currency.js';
+import { InputTooLarge, InvalidMoneyShape, InvalidMoneyText, isMoneyFailure, RoundingNecessary } from './failures.js';
+import { orRaise } from './internal/raise.js';
+import { addUnits, canon, compareUnits, isExactAtScale, MAX_INPUT_LENGTH, MAX_PARTS, MAX_SCALE, mulDiv, mulUnits, negUnits, parseDecimal, parseNumber, pow10, quantize, toUnits, } from './internal/units.js';
 const BRAND = Symbol('Money');
 const MAX = Number.MAX_SAFE_INTEGER;
-const INTEGER = /^[+-]?\d+$/;
 // `read()` leaves a factor's fraction here instead of allocating an object.
 let num = 0;
 let den = 1;
@@ -52,13 +56,13 @@ function read(value) {
             den = 1;
             return;
         }
-        const parsed = parseNumber(value);
+        const parsed = orRaise(parseNumber(value));
         num = parsed.coefficient;
         den = pow10(parsed.fraction);
         return;
     }
     if (typeof value === 'string') {
-        const parsed = parseDecimal(value);
+        const parsed = orRaise(parseDecimal(value));
         num = parsed.coefficient;
         den = pow10(parsed.fraction);
         return;
@@ -94,7 +98,8 @@ function read(value) {
     }
     throw new TypeError('Expected a number, string, bigint, Decimal, Rational or Factor');
 }
-function checkScale(scale) {
+/** @internal Validates a scale the caller chose; throws `InvalidArgumentError`. */
+export function checkScale(scale) {
     if (!Number.isInteger(scale) || scale < 0 || scale > MAX_SCALE) {
         throw new InvalidArgumentError(`A scale is a whole number from 0 to ${MAX_SCALE}, got ${scale}`);
     }
@@ -145,7 +150,7 @@ export class Money {
      */
     static fromMinor(units, currency, scale) {
         const cur = toCurrency(currency);
-        return new Money(toUnits(units), scale === undefined ? cur.scale : checkScale(scale), cur, BRAND);
+        return new Money(orRaise(toUnits(units)), scale === undefined ? cur.scale : checkScale(scale), cur, BRAND);
     }
     /** Zero in this currency. */
     static zero(currency, scale) {
@@ -155,29 +160,41 @@ export class Money {
     /**
      * Reads what `toString()` writes: `'19.99 EUR'`, also `'EUR 19.99'`. Keeps the
      * text's decimals when there are more than the currency's (`'1.2345 EUR'`
-     * stays at scale 4). Pass `currencies` to resolve custom codes.
+     * stays at scale 4). Pass `currencies` to resolve custom codes. For outside
+     * text: returns `InvalidMoneyText`, `UnknownCurrency` or `InputTooLarge` instead of throwing.
      */
     static parse(text, currencies) {
+        // Plain JavaScript and untyped payloads can pass anything.
         if (typeof text !== 'string')
-            throw new TypeError('Money.parse expects a string');
+            return InvalidMoneyText();
+        if (text.length > MAX_INPUT_LENGTH)
+            return InputTooLarge();
         const parts = text.trim().split(/\s+/);
         const [first = '', second = ''] = parts;
-        if (parts.length !== 2) {
-            throw new NumberFormatError(`Cannot read ${JSON.stringify(text.slice(0, 40))} as money; expected '19.99 EUR'`);
-        }
+        if (parts.length !== 2)
+            return InvalidMoneyText();
         const amountFirst = /^[+-]?\d/.test(first);
-        return fromText(amountFirst ? first : second, resolveCurrency(amountFirst ? second : first, currencies));
+        const currency = Currency.parse(amountFirst ? second : first, currencies);
+        if (isMoneyFailure(currency))
+            return currency;
+        return fromText(amountFirst ? first : second, currency);
     }
-    /** Reads `{ amount: '19.99', currency: 'EUR' }`, keeping the amount's decimals. Validates the shape. */
+    /**
+     * Reads `{ amount: '19.99', currency: 'EUR' }`, keeping the amount's decimals.
+     * Returns `InvalidMoneyShape`, `InvalidMoneyText`, `UnknownCurrency` or
+     * `InputTooLarge` instead of throwing.
+     */
     static fromJSON(value, currencies) {
         if (typeof value !== 'object' || value === null || !('amount' in value) || !('currency' in value)) {
-            throw new InvalidArgumentError('Expected { amount: string, currency: string }');
+            return InvalidMoneyShape();
         }
-        const { amount, currency } = value;
-        if (typeof amount !== 'string' || typeof currency !== 'string') {
-            throw new InvalidArgumentError('Expected { amount: string, currency: string }');
-        }
-        return fromText(amount, resolveCurrency(currency, currencies));
+        const { amount, currency: code } = value;
+        if (typeof amount !== 'string' || typeof code !== 'string')
+            return InvalidMoneyShape();
+        const currency = Currency.parse(code, currencies);
+        if (isMoneyFailure(currency))
+            return currency;
+        return fromText(amount, currency);
     }
     /** Comparator for sorting: `prices.sort(Money.compare)`. Throws on mixed currencies. */
     static compare(a, b) {
@@ -292,31 +309,11 @@ export class Money {
             throw new InvalidArgumentError('allocate needs at least one ratio');
         if (count > MAX_PARTS)
             throw new ResourceLimitError(`allocate makes at most ${MAX_PARTS} parts`);
-        const coefficients = [];
-        const fractions = [];
-        let common = 0;
-        for (const ratio of ratios) {
-            const parsed = typeof ratio === 'number'
-                ? parseNumber(ratio)
-                : typeof ratio === 'string'
-                    ? parseDecimal(ratio)
-                    : typeof ratio === 'bigint'
-                        ? { coefficient: canon(ratio), fraction: 0 }
-                        : badRatio();
-            if (parsed.coefficient < 0)
-                throw new InvalidArgumentError(`Ratios must not be negative, got ${String(ratio)}`);
-            coefficients.push(parsed.coefficient);
-            fractions.push(parsed.fraction);
-            if (parsed.fraction > common)
-                common = parsed.fraction;
-        }
-        const weights = [];
+        // Whole-number ratios are their own weights; others are scaled to a common denominator.
+        const weights = areWholeRatios(ratios) ? ratios : scaledWeights(ratios);
         let total = 0;
-        for (let i = 0; i < count; i++) {
-            const weight = mulUnits(coefficients[i] ?? 0, pow10(common - (fractions[i] ?? 0)));
-            weights.push(weight);
+        for (const weight of weights)
             total = addUnits(total, weight);
-        }
         if (total === 0)
             throw new InvalidArgumentError('Ratios must not all be zero');
         return distribute(this, weights, total, options?.remainder ?? 'largest');
@@ -445,22 +442,29 @@ export class Money {
 function badRatio() {
     throw new TypeError('Ratios must be numbers, bigints or decimal strings');
 }
-function toUnits(value) {
-    if (typeof value === 'number') {
-        if (!Number.isSafeInteger(value))
-            throw new NumericRangeError(`Minor units must be a safe integer, got ${value}`);
-        return value + 0;
-    }
-    if (typeof value === 'bigint')
-        return canon(value);
-    if (typeof value === 'string' && value.length <= MAX_INPUT_LENGTH && INTEGER.test(value))
-        return canon(BigInt(value));
-    throw new NumberFormatError(`Minor units must be a whole number, got ${JSON.stringify(String(value).slice(0, 40))}`);
-}
+/** Plain decimal text at the text's own scale (at least the currency's), or a failure. */
 function fromText(text, currency) {
     const parsed = parseDecimal(text);
-    const scale = checkScale(Math.max(parsed.fraction, currency.scale));
+    if (isMoneyFailure(parsed))
+        return parsed;
+    const scale = Math.max(parsed.fraction, currency.scale);
+    if (scale > MAX_SCALE)
+        return InputTooLarge();
     return Money.create(quantize(parsed.coefficient, parsed.fraction, scale), scale, currency);
+}
+/**
+ * @internal Plain decimal text at `scale`, for `parseMoney`. Returns `RoundingNecessary`
+ * instead of throwing when the text has more decimals and no rounding mode was given.
+ */
+export function fromDecimalText(text, currency, scale, rounding) {
+    const parsed = parseDecimal(text);
+    if (isMoneyFailure(parsed))
+        return parsed;
+    if ((rounding === undefined || rounding === 'unnecessary') &&
+        !isExactAtScale(parsed.coefficient, parsed.fraction, scale)) {
+        return RoundingNecessary();
+    }
+    return Money.create(quantize(parsed.coefficient, parsed.fraction, scale, rounding), scale, currency);
 }
 function combine(a, b, subtract) {
     const scale = Math.max(a.scale, b.scale);
@@ -468,31 +472,85 @@ function combine(a, b, subtract) {
     const right = mulUnits(b.units, pow10(scale - b.scale));
     return Money.create(addUnits(left, subtract ? negUnits(right) : right), scale, a.currency);
 }
+/** Whether every ratio is a non-negative safe integer, which is then its own weight. */
+function areWholeRatios(ratios) {
+    for (const ratio of ratios)
+        if (typeof ratio !== 'number' || !Number.isSafeInteger(ratio) || ratio < 0)
+            return false;
+    return true;
+}
+/** Reads each ratio exactly and scales all of them to the most decimals among them. */
+function scaledWeights(ratios) {
+    const weights = [];
+    const fractions = [];
+    let common = 0;
+    for (const ratio of ratios) {
+        const parsed = typeof ratio === 'number'
+            ? orRaise(parseNumber(ratio))
+            : typeof ratio === 'string'
+                ? orRaise(parseDecimal(ratio))
+                : typeof ratio === 'bigint'
+                    ? { coefficient: canon(ratio), fraction: 0 }
+                    : badRatio();
+        if (parsed.coefficient < 0)
+            throw new InvalidArgumentError(`Ratios must not be negative, got ${String(ratio)}`);
+        weights.push(parsed.coefficient);
+        fractions.push(parsed.fraction);
+        if (parsed.fraction > common)
+            common = parsed.fraction;
+    }
+    if (common > 0) {
+        for (let i = 0; i < weights.length; i++)
+            weights[i] = mulUnits(weights[i] ?? 0, pow10(common - (fractions[i] ?? 0)));
+    }
+    return weights;
+}
 function distribute(whole, weights, total, policy) {
     const negative = whole.units < 0;
     const magnitude = negative ? negUnits(whole.units) : whole.units;
     const count = weights.length;
     const shares = [];
-    const rests = [];
+    // Rests are kept only once two differ: with every rest equal, largest-remainder order is index order.
+    let firstRest = 0;
+    let rests;
     let given = 0;
     for (let i = 0; i < count; i++) {
-        const exact = mulUnits(magnitude, weights[i] ?? 0);
-        const share = mulDiv(exact, 1, total, 'down');
+        const weight = weights[i] ?? 0;
+        let share;
+        let rest;
+        const product = typeof magnitude === 'number' && typeof weight === 'number' ? magnitude * weight : MAX + 1;
+        if (product <= MAX && typeof total === 'number') {
+            // Both non-negative and exact: `%` on doubles is exact, so the floor division is too.
+            rest = product % total;
+            share = (product - rest) / total;
+        }
+        else {
+            const exact = mulUnits(magnitude, weight);
+            share = mulDiv(exact, 1, total, 'down');
+            rest = addUnits(exact, negUnits(mulUnits(share, total)));
+        }
         shares.push(share);
-        rests.push(addUnits(exact, negUnits(mulUnits(share, total))));
         given = addUnits(given, share);
+        if (i === 0) {
+            firstRest = rest;
+        }
+        else if (rests !== undefined) {
+            rests.push(rest);
+        }
+        else if (rest !== firstRest) {
+            rests = Array.from({ length: i }, () => firstRest);
+            rests.push(rest);
+        }
     }
     // Fewer than `count` units are left, and only parts with a non-zero rest can need one.
     let left = Number(addUnits(magnitude, negUnits(given)));
-    if (left > 0) {
+    if (left > 0 && policy === 'largest' && rests !== undefined) {
+        const byRest = rests;
         const order = [];
         for (let i = 0; i < count; i++)
             if (weights[i] !== 0)
                 order.push(i);
-        if (policy === 'largest')
-            order.sort((x, y) => compareUnits(rests[y] ?? 0, rests[x] ?? 0) || x - y);
-        else if (policy === 'last')
-            order.reverse();
+        order.sort((x, y) => compareUnits(byRest[y] ?? 0, byRest[x] ?? 0) || x - y);
         for (const index of order) {
             if (left === 0)
                 break;
@@ -500,7 +558,20 @@ function distribute(whole, weights, total, policy) {
             left -= 1;
         }
     }
-    return shares.map(share => Money.create(negative ? negUnits(share) : share, whole.scale, whole.currency));
+    else if (left > 0) {
+        const fromEnd = policy === 'last';
+        for (let step = 0; step < count && left > 0; step++) {
+            const index = fromEnd ? count - 1 - step : step;
+            if (weights[index] === 0)
+                continue;
+            shares[index] = addUnits(shares[index] ?? 0, 1);
+            left -= 1;
+        }
+    }
+    const parts = [];
+    for (const share of shares)
+        parts.push(Money.create(negative ? negUnits(share) : share, whole.scale, whole.currency));
+    return parts;
 }
 // Shorthands and aggregates ------------------------------------------------
 /** Shorthand for `Money.of`: `money('19.99', 'EUR')`. */

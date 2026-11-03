@@ -47,12 +47,25 @@ export type RateTable = {
     /** Custom currencies used as quote codes. */
     currencies?: readonly Currency[];
 };
-/** `ratesFrom({ base: 'EUR', rates: { USD: '1.0832' } })` → `[EUR/USD 1.0832]`. */
+/**
+ * Reads a rate table from a feed (ECB, a bank, a JSON file): the door for outside values.
+ * Returns the rates, or the first failure: `UnknownCurrency` for a base or quote code outside
+ * ISO 4217 and `table.currencies`, `InvalidMoneyText`, `AmountOutOfRange` or `InputTooLarge` for
+ * a value that is not a plain number, `InvalidExchangeRate` for a value of 0 or less (or a
+ * currency to itself that is not 1). It never throws for text or numbers in the table.
+ */
+export declare function parseRates(table: RateTable): ExchangeRate<string, string>[] | import("@arki/failure").Failure<"money.input_too_large", undefined> | import("@arki/failure").Failure<"money.invalid_rate", undefined> | import("@arki/failure").Failure<"money.invalid_text", undefined> | import("@arki/failure").Failure<"money.out_of_range", undefined> | import("@arki/failure").Failure<"money.unknown_currency", undefined>;
+/**
+ * `ratesFrom({ base: 'EUR', rates: { USD: '1.0832' } })` → `[EUR/USD 1.0832]`, for a table written in
+ * your own code. Throws `UnknownCurrencyError`, `NumberFormatError` or `ExchangeRateError` for a
+ * bad entry. Read a feed with {@link parseRates} instead.
+ */
 export declare function ratesFrom(table: RateTable): ExchangeRate[];
 /**
  * Converts with one rate. The rate's base must be the amount's currency. The
  * exact result is rounded once to the target scale (the quote currency's,
- * or `options.scale`); an inexact result needs `options.rounding`.
+ * or `options.scale`); an inexact result needs `options.rounding`. A scale
+ * outside 0 to 100 throws `InvalidArgumentError` before any arithmetic.
  */
 export declare function convert<B extends string, Q extends string>(amount: Money<B>, rate: ExchangeRate<NoInfer<B>, Q>, options?: MoneyOptions): Money<Q>;
 export type ConverterOptions = {
@@ -73,7 +86,10 @@ export declare class Converter {
     rate<const F extends string, const T extends string>(from: CurrencyLike<F>, to: CurrencyLike<T>): ExchangeRate<F, T>;
     /** `true` when `rate(from, to)` would succeed. */
     has(from: CurrencyLike, to: CurrencyLike): boolean;
-    /** Converts and rounds once. Same-currency conversion needs no rate and only changes the scale. */
+    /**
+     * Converts and rounds once. Same-currency conversion needs no rate and only changes the scale.
+     * A scale outside 0 to 100 throws `InvalidArgumentError` before any arithmetic.
+     */
     convert<const T extends string>(amount: Money, to: CurrencyLike<T>, options?: MoneyOptions): Money<T>;
     private resolve;
     private lookup;

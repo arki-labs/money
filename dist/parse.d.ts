@@ -8,15 +8,16 @@
  *
  * Strict means it refuses instead of guessing: grouping in the wrong place
  * (`'1,23,4'`), a decimal separator the locale does not use, two signs, mixed
- * digit scripts, a different currency's symbol, or any trailing text all throw
- * `NumberFormatError`. Text without grouping is always fine: `'1234.5'`.
+ * digit scripts, a different currency's symbol, or any trailing text all return
+ * the `InvalidMoneyText` failure. Text without grouping is always fine: `'1234.5'`.
+ * Parsing never throws for bad text: it returns a failure from `failures.ts`.
  *
- * Runtimes without `formatToParts` (React Native's Hermes on iOS) throw
- * `UnsupportedFeatureError`; pass `symbols` to parse without `Intl`.
+ * A locale tag the runtime rejects returns `UnsupportedLocale`. Runtimes without
+ * `formatToParts` (React Native's Hermes on iOS) throw `UnsupportedFeatureError`;
+ * pass `symbols` to parse without `Intl`.
  */
 import type { RoundingMode } from '@arki/math/rounding';
-import type { CurrencyLike } from './currency.js';
-import { Money } from './money.js';
+import type { Currency, CurrencyLike } from './currency.js';
 export type ParseSymbols = {
     /** Decimal separator, such as `','`. */
     decimal: string;
@@ -30,7 +31,7 @@ export type ParseSymbols = {
 export type ParseOptions = {
     /** BCP 47 locale. Defaults to `'en-US'`; there is no global locale. */
     locale?: string;
-    /** How to drop digits beyond the scale. Without it, extra digits throw `RoundingNecessaryError`. */
+    /** How to drop digits beyond the scale. Without it, extra digits return `RoundingNecessary`. */
     rounding?: RoundingMode;
     /** Decimals to keep. Defaults to the currency's. */
     scale?: number;
@@ -38,16 +39,35 @@ export type ParseOptions = {
     symbols?: ParseSymbols;
 };
 export type MoneyParser<C extends string> = {
-    /** Parses or throws `NumberFormatError` (bad text) or `RoundingNecessaryError` (too many decimals). */
-    parse(text: string): Money<C>;
-    /** Parses or returns `undefined`, for form validation. Still throws for runtime capability errors. */
-    tryParse(text: string): Money<C> | undefined;
+    /** The amount, or `InvalidMoneyText`, `InputTooLarge` or `RoundingNecessary` (too many decimals). Never throws for bad text. */
+    parse(text: string): ReturnType<typeof parseWith<C>>;
 };
+type Grammar = {
+    decimal: string;
+    group: string | undefined;
+    primary: number;
+    secondary: number;
+    /** The locale's ten digits, or `undefined` for ASCII digits. */
+    digits: string | undefined;
+    minus: readonly string[];
+    /** Currency marks, longest first. */
+    marks: readonly string[];
+};
+/** Reads one text with a prepared grammar. Its return type is `MoneyParser#parse`'s. */
+declare function parseWith<C extends string>(text: string, grammar: Grammar, currency: Currency<C>, scale: number, rounding: RoundingMode | undefined): import("@arki/failure").Failure<"money.input_too_large", undefined> | import("@arki/failure").Failure<"money.invalid_text", undefined> | import("@arki/failure").Failure<"money.rounding_necessary", undefined> | import("./money.js").Money<C>;
 /**
  * Prepares the locale's grammar once, for forms and imports:
- * `const parse = createMoneyParser('EUR', { locale: 'de-DE' }); parse.parse('1.234,56 €')`.
+ * `const parser = createMoneyParser('EUR', { locale: 'de-DE' }); parser.parse('1.234,56 €')`.
+ * Returns `UnsupportedLocale` when the runtime rejects `options.locale`, which often comes from
+ * outside (`Accept-Language`). The currency and scale are your code's: an unknown code or a
+ * bad scale throws.
  */
-export declare function createMoneyParser<const C extends string>(currency: CurrencyLike<C>, options?: ParseOptions): MoneyParser<C>;
-/** One-shot form of `createMoneyParser`: `parseMoney('1.234,56 €', 'EUR', { locale: 'de-DE' })`. */
-export declare function parseMoney<const C extends string>(text: string, currency: CurrencyLike<C>, options?: ParseOptions): Money<C>;
+export declare function createMoneyParser<const C extends string>(currency: CurrencyLike<C>, options?: ParseOptions): import("@arki/failure").Failure<"money.unsupported_locale", undefined> | MoneyParser<C>;
+/**
+ * One-shot form of `createMoneyParser`: `parseMoney('1.234,56 €', 'EUR', { locale: 'de-DE' })`.
+ * Returns the amount or a failure (`InvalidMoneyText`, `InputTooLarge`, `RoundingNecessary`,
+ * `UnsupportedLocale`); it never throws for bad text.
+ */
+export declare function parseMoney<const C extends string>(text: string, currency: CurrencyLike<C>, options?: ParseOptions): import("@arki/failure").Failure<"money.input_too_large", undefined> | import("@arki/failure").Failure<"money.invalid_text", undefined> | import("@arki/failure").Failure<"money.rounding_necessary", undefined> | import("@arki/failure").Failure<"money.unsupported_locale", undefined> | import("./money.js").Money<C>;
+export {};
 //# sourceMappingURL=parse.d.ts.map

@@ -1,3 +1,5 @@
+Read-only mirror of `@arki/money` v0.2.0. Source and issues: arki-labs/arki. Docs: https://arki.dev/packages/money. Published 2026-11-03 with provenance https://www.npmjs.com/package/@arki/money/v/0.2.0#provenance.
+
 # @arki/money
 
 Exact, fast money for every JavaScript runtime.
@@ -8,17 +10,129 @@ Exact, fast money for every JavaScript runtime.
 - **Same answer everywhere.** The ISO 4217 table ships with the package (178 currencies, published 2026-09-17). `Intl` is only used for display, so a value has the same decimals on every device.
 - **Runs everywhere.** Pure ESM with web-standard globals only. Tested on Node, Bun, Deno and Chromium; built for React Native (Hermes).
 
-```ts
+## Install
+
+```sh
+bun add @arki/money @arki/math
+```
+
+`@arki/math` is a hard dependency: errors and rounding names come from it. `zod` (4.x) and `drizzle-orm` (1.x) are optional peers, used only by their subpaths.
+
+## Quick start
+
+Add, multiply with an explicit rounding mode, and split without losing a cent.
+
+```ts run
 import { factor, money, sum } from '@arki/money';
 
 const price = money('19.99', 'EUR');
 const total = sum([price, money('5.01', 'EUR')]); // 25.00 EUR
+if (total.toString() !== '25.00 EUR') throw new Error(`unexpected total: ${total.toString()}`);
 price.times(3); // 59.97 EUR
-price.times('1.19'); // throws RoundingNecessaryError: 23.7881 does not fit
+// price.times('1.19') throws RoundingNecessaryError: 23.7881 does not fit
 price.times('1.19', 'halfEven'); // 23.79 EUR
-money(100, 'EUR').allocate([1, 1, 1]); // [33.34, 33.33, 33.33] — adds back to 100.00
-money(1, 'EUR').plus(money(1, 'USD')); // compile error, and CurrencyMismatchError at run time
+money(100, 'EUR').allocate([1, 1, 1]); // [33.34, 33.33, 33.33], three friends, one pizza, zero cents lost
+// money(1, 'EUR').plus(money(1, 'USD')) is a compile error, and throws CurrencyMismatchError at run time
 ```
+
+## When not to use this
+
+- You are doing float calculators where cents do not matter (an interest chart, a unit converter). Use `@arki/math` and `formatCurrency`.
+- You need a currency outside ISO 4217 as a global registry. Custom currencies are plain objects you pass in; there is no registry.
+- You need to track money of one currency in a ledger with its own rounding rules and audit trail. This package is the value type, not the ledger.
+- You need locale-aware parsing on Hermes for Apple platforms. `parseMoney` with a `locale` throws there; pass `symbols`.
+
+## Runtime support
+
+Node 20+, Bun, Deno, modern browsers and React Native on Hermes V1 (React Native 0.86). `bun run test:runtimes` runs the same checks on all five; the Hermes leg needs a `hermes` binary (`HERMES_BIN`) and prints `INCOMPLETE` when it is missing.
+
+On Hermes for Apple platforms, `Intl.NumberFormat` has no `formatToParts` and formats number strings through a float. So `parseMoney` with a `locale` throws `UnsupportedFeatureError` (pass `symbols` instead), `formatMoneyToParts` throws, and `formatMoney` is exact up to 15 significant digits and throws beyond. Arithmetic, allocation, conversion, Stripe units and JSON work everywhere.
+
+## Public imports
+
+| Import                                        | Contents                                                                             |
+| --------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `@arki/money`                                 | `Money`, `money`, `Currency`, `factor`, `sum`, `average`, `min`, `max`, errors       |
+| `@arki/money/currency`                        | `Currency` alone                                                                     |
+| `@arki/money/format`                          | `formatMoney`, `formatMoneyToParts`, `createMoneyFormatter`                          |
+| `@arki/money/exact`                           | `toDecimal`, `toRational` bridges to `@arki/math`                                    |
+| `@arki/money/errors`                          | Error classes                                                                        |
+| `@arki/money/parse`                           | `parseMoney`, `createMoneyParser`                                                    |
+| `@arki/money/exchange`                        | `exchangeRate`, `ratesFrom`, `parseRates`, `convert`, `createConverter`, `Converter` |
+| `@arki/money/provider`                        | `toProviderUnits`, `fromProviderUnits`                                               |
+| `@arki/money/rational`                        | `RationalMoney`, `isRationalMoney`                                                   |
+| `@arki/money/bag`                             | `MoneyBag`                                                                           |
+| `@arki/money/zod`                             | `moneySchema`, `anyMoneySchema`, `moneyInputSchema`, `currencyCodeSchema`            |
+| `@arki/money/drizzle/pg`, `/mysql`, `/sqlite` | `moneyMinor`, `moneyDecimal`, `moneyJson`                                            |
+| `@arki/money/stripe`                          | `toStripe`, `toStripeAmount`, `fromStripeAmount`, `stripeRule`                       |
+
+## Failure behaviour
+
+Parsers return, builders throw. No call returns `NaN` or a rounded guess.
+
+Values from outside (typed text, JSON, provider payloads) go through a door that returns the value or an `@arki/failure` value: `Money.parse`, `Money.fromJSON`, `RationalMoney.fromJSON`, `Currency.parse`, `Currency.parseNumeric`, `parseMoney`, `createMoneyParser`, `parseRates`, `fromProviderUnits` and `fromStripeAmount`. Each failure is listed once in `MONEY_FAILURES`; check with `isMoneyFailure(result)` or `InvalidMoneyText.is(result)`, and match on `code`. Failures carry no input text, so they are safe to log or send.
+
+| Code                       | Failure               | Status | What to do                                                  |
+| -------------------------- | --------------------- | ------ | ----------------------------------------------------------- |
+| `money.invalid_text`       | `InvalidMoneyText`    | 400    | Show the expected format, such as `19.99 EUR`; do not guess |
+| `money.invalid_shape`      | `InvalidMoneyShape`   | 400    | Send `{ amount, currency }` as strings                      |
+| `money.unknown_currency`   | `UnknownCurrency`     | 400    | Use an ISO 4217 code, or pass your custom currencies        |
+| `money.rounding_necessary` | `RoundingNecessary`   | 400    | Ask for fewer decimals, or pass a rounding mode             |
+| `money.out_of_range`       | `AmountOutOfRange`    | 400    | Send minor units past 2^53 as a string or bigint            |
+| `money.input_too_large`    | `InputTooLarge`       | 413    | Refuse the input; real amounts are far shorter              |
+| `money.unsupported_locale` | `UnsupportedLocale`   | 400    | Pass a valid BCP 47 tag, or `symbols`                       |
+| `money.provider_amount`    | `ProviderAmount`      | 422    | Check the provider amount; never round it to fit            |
+| `money.invalid_rate`       | `InvalidExchangeRate` | 400    | Check the rate feed; every rate is above 0                  |
+
+Builders and arithmetic (`money`, `Money.of`, `Money.fromMinor`, `Currency.of`, `times`, `dividedBy`, `plus`) throw, because their input is your code's. Never pass outside text to a builder.
+
+Every deliberate failure extends `MathError` from `@arki/math`, so one `instanceof` catches both libraries. Money-only errors extend `MoneyError`: `CurrencyMismatchError`, `UnknownCurrencyError`, `ExchangeRateError`, `ProviderAmountError`. Each has a stable `code` and a `remediation`; match on the code, never on the message. The money-only codes are `ARKI_MONEY_E001` (`CurrencyMismatchError`), `E002` (`UnknownCurrencyError`; the bad text is `currencyCode`), `E003` (`ExchangeRateError`) and `E004` (`ProviderAmountError`), also exported as `MONEY_ERROR_CODES`. Shared ones keep their `ARKI_MATH_*` codes: `RoundingNecessaryError`, `DivisionByZeroError`, `InvalidArgumentError`, `NumberFormatError`, `NumericRangeError`, `ResourceLimitError`, `EmptyDataError`, `UnsupportedFeatureError`.
+
+How to handle them:
+
+- **`RoundingNecessaryError`:** the exact result does not fit the scale. Pass a rounding mode, or let a step keep more decimals.
+- **`CurrencyMismatchError`:** two currencies met. Convert first with `@arki/money/exchange`.
+- **`NumberFormatError` or `InvalidArgumentError` from input:** show the user the bad text and ask again. Do not retry.
+- **`ProviderAmountError`:** a provider amount cannot be sent as is (for example a 3-decimal currency on Stripe). Choose another currency or amount.
+
+## Limits
+
+- **Hybrid storage.** `units` is a `number` while it is a safe integer, and a `bigint` beyond that. This is the canonical form, and `-0` never occurs. The change is invisible to callers: the value stays exact.
+- **No default rounding.** `times`, `dividedBy`, `percentage`, `toScale` and `roundToStep` return the exact result when it fits and throw `RoundingNecessaryError` when it does not and no mode was given. There is no global rounding setting.
+- **Currency decimals come from the shipped ISO 4217 table** (178 currencies, published 2026-09-17), never from `Intl`. A code outside the table is `UnknownCurrencyError`.
+- **Money is not frozen.** Freezing costs more than the arithmetic. Do not mutate the fields.
+- **SQLite drivers** that return numbers are exact up to 2^53 minor units. A bigger stored amount throws on read.
+- **Stripe no longer documents 3-decimal currencies**, so they throw `ProviderAmountError`.
+
+Boundary example: the 2^53 edge changes the storage type, not the value.
+
+```ts run
+import { Money } from '@arki/money';
+
+const edge = Money.fromMinor(Number.MAX_SAFE_INTEGER, 'EUR');
+const past = edge.plus(Money.fromMinor(1, 'EUR'));
+if (typeof edge.units !== 'number') throw new Error('a safe integer must stay a number');
+if (typeof past.units !== 'bigint') throw new Error('past 2^53 the units must become a bigint');
+if (past.units !== BigInt(Number.MAX_SAFE_INTEGER) + 1n) throw new Error('the sum lost precision');
+
+let threw = false;
+try {
+  Money.fromMinor(1999, 'EUR').times('1.19');
+} catch {
+  threw = true; // 23.7881 EUR does not fit 2 decimals and no rounding mode was given
+}
+if (!threw) throw new Error('an inexact times must throw without a rounding mode');
+```
+
+## Documentation
+
+- [Agent guide](docs/agent-guide.md): the model, the task map and the rules.
+- [llms.txt](llms.txt): the short index for agents.
+- [CHANGELOG](CHANGELOG.md): what changed in each version.
+
+## Support
+
+Report a bug or ask a question in the [Arki issue tracker](https://github.com/arki-labs/arki/issues). Include the currency, the operation and the error `code`.
 
 ## Creating money
 
@@ -30,10 +144,12 @@ money(1, 'EUR').plus(money(1, 'USD')); // compile error, and CurrencyMismatchErr
 | `money('0.1234', 'EUR', { scale: 4 })`              | Keep more decimals, for unit prices.                                                  |
 | `Money.fromMinor(1999, 'EUR')`                      | From cents. Also takes a `bigint` or an integer string, as databases return `BIGINT`. |
 | `Money.zero('EUR')`                                 | Zero.                                                                                 |
-| `Money.parse('19.99 EUR')` / `Money.fromJSON(json)` | Reads what `toString()` / `toJSON()` write.                                           |
+| `Money.parse('19.99 EUR')` / `Money.fromJSON(json)` | Reads what `toString()` / `toJSON()` write; returns a failure for bad input.          |
 | `Money.of(m, 'EUR')`                                | Checks a `Money<string>` is EUR and narrows its type to `Money<'EUR'>`.               |
 
 `money()` also accepts a `Decimal` or a `Rational` from `@arki/math`.
+
+`isMoney(value)` tells you whether an unknown value is a `Money`. It is true for any currency, and it narrows the type to `Money`.
 
 ## Rounding
 
@@ -44,6 +160,8 @@ There is no default mode. `times`, `dividedBy`, `percentage`, `toScale` and `rou
 Cash rounding is a step, because it is set by each country's law, not by the currency:
 
 ```ts
+import { money } from '@arki/money';
+
 money('1.025', 'CHF', { scale: 3 }).roundToStep('0.05', 'halfUp'); // 1.050 CHF
 ```
 
@@ -51,8 +169,10 @@ For a calculation with several steps, round once at the end through `@arki/math`
 
 ```ts
 import { ratio } from '@arki/math/rational';
+import { money } from '@arki/money';
 import { toRational } from '@arki/money/exact';
 
+const price = money('19.99', 'EUR');
 const share = toRational(price).times(ratio(1, 3)).plus(ratio(1, 7));
 money(share, 'EUR', { rounding: 'halfEven' });
 ```
@@ -64,7 +184,7 @@ money(share, 'EUR', { rounding: 'halfEven' });
 ## Currencies
 
 ```ts
-import { Currency } from '@arki/money';
+import { Currency, money } from '@arki/money';
 
 Currency.of('EUR'); // { code: 'EUR', numeric: '978', scale: 2, iso: true }
 Currency.fromNumeric('978'); // EUR
@@ -87,6 +207,7 @@ Custom currencies are not registered globally. Keep the object and pass it where
 | `+price`                                                 | Throws. A `Money` never turns into a float by accident. |
 
 ```ts
+import { money } from '@arki/money';
 import { createMoneyFormatter, formatMoney } from '@arki/money/format';
 
 formatMoney(money('1234.5', 'EUR'), { locale: 'de-DE' }); // '1.234,50 €'
@@ -99,23 +220,25 @@ Formatting passes the amount to `Intl` as exact text, so digits past 2^53 surviv
 ## Reading what people type
 
 ```ts
+import { isMoneyFailure } from '@arki/money';
 import { createMoneyParser, parseMoney } from '@arki/money/parse';
 
 parseMoney('1.234,56 €', 'EUR', { locale: 'de-DE' }); // 1234.56 EUR
 parseMoney('₹1,23,456.78', 'INR', { locale: 'en-IN' }); // 123456.78 INR
 parseMoney('($1,234.56)', 'USD'); // -1234.56 USD
 parseMoney('$10', 'CAD'); // 10.00 CAD — you say which currency, so '$' is never guessed
-parseMoney('1,23,4', 'USD'); // throws NumberFormatError: grouping does not match the locale
+parseMoney('1,23,4', 'USD'); // InvalidMoneyText (money.invalid_text): grouping does not match the locale
 
-const form = createMoneyParser('EUR', { locale: 'de-DE' }); // reads the locale once
-form.tryParse('12,505 €'); // undefined — too many decimals, for form validation
+const form = createMoneyParser('EUR', { locale: 'de-DE' }); // reads the locale once; UnsupportedLocale for a bad tag
+if (!isMoneyFailure(form)) form.parse('12,505 €'); // RoundingNecessary (money.rounding_necessary): too many decimals
 ```
 
-Separators, digits, minus sign and currency symbols come from `Intl` for the locale. Parsing is strict: wrong grouping, the other locale's decimal separator, two signs, mixed digit scripts or a different currency's symbol throw instead of being guessed. Text without grouping (`'1234.5'`) is always accepted. On runtimes without `formatToParts` (Hermes on iOS), pass `symbols: { decimal: ',', group: '.' }` instead of a locale.
+Separators, digits, minus sign and currency symbols come from `Intl` for the locale. Parsing is strict: wrong grouping, the other locale's decimal separator, two signs, mixed digit scripts or a different currency's symbol return `InvalidMoneyText` instead of being guessed. Text without grouping (`'1234.5'`) is always accepted. On runtimes without `formatToParts` (Hermes on iOS), pass `symbols: { decimal: ',', group: '.' }` instead of a locale.
 
 ## Converting currencies
 
 ```ts
+import { money } from '@arki/money';
 import { convert, createConverter, exchangeRate, ratesFrom } from '@arki/money/exchange';
 
 const rates = ratesFrom({ base: 'EUR', rates: { USD: '1.0832', GBP: '0.8571' } });
@@ -126,18 +249,19 @@ fx.rate('USD', 'GBP').toString(); // 'USD/GBP 8571/10832'
 convert(money(100, 'EUR'), exchangeRate('EUR', 'USD', '1.0832')); // 108.32 USD
 ```
 
-Rates are exact fractions, never floats, so inverse and cross rates add no error. A conversion rounds once, at the end; converting in two rounded steps above would give 976.86. Reversed rates (`inverse`) and routing through a base currency (`via`) are opt-in, because a bid rate reversed is not an ask rate. There is no network code: fetch rates from wherever you trust and pass them in.
+Rates are exact fractions, never floats, so inverse and cross rates add no error. A conversion rounds once, at the end; converting in two rounded steps above would give 976.86. Reversed rates (`inverse`) and routing through a base currency (`via`) are opt-in, because a bid rate reversed is not an ask rate. There is no network code: fetch rates from wherever you trust and pass them in. Read a fetched table with `parseRates`, which returns `UnknownCurrency`, `InvalidMoneyText` or `InvalidExchangeRate` for a bad entry; `ratesFrom` is the throwing builder for a table written in your code.
 
 ## Payment providers
 
 ```ts
+import { money } from '@arki/money';
 import { fromStripeAmount, toStripe, toStripeAmount } from '@arki/money/stripe';
 
 toStripe(money('10.99', 'EUR')); // { amount: 1099, currency: 'eur' }
 toStripeAmount(money(5, 'ISK')); // 500 — Stripe sends ISK with two decimals that are always 00
 toStripeAmount(money('10.50', 'MGA')); // throws ProviderAmountError — MGA is zero-decimal at Stripe
 toStripeAmount(money('10.45', 'HUF'), 'payout'); // throws — HUF payouts must be whole forints
-fromStripeAmount(1099, 'usd'); // 10.99 USD
+fromStripeAmount(1099, 'usd'); // 10.99 USD; a payload Stripe has no rule for returns ProviderAmount
 ```
 
 Rules come from docs.stripe.com/currencies, checked on 2026-10-12 (`STRIPE_RULES_VERSION`). Stripe documents no rule for currencies with 3 or 4 decimals, so those throw instead of being guessed. For other providers, describe their units with `toProviderUnits(money, { scale, step })` and `fromProviderUnits` from `@arki/money/provider`.
@@ -145,13 +269,16 @@ Rules come from docs.stripe.com/currencies, checked on 2026-10-12 (`STRIPE_RULES
 ## Exact steps and several currencies
 
 ```ts
+import { money } from '@arki/money';
 import { MoneyBag } from '@arki/money/bag';
+import { createConverter, ratesFrom } from '@arki/money/exchange';
 import { RationalMoney } from '@arki/money/rational';
 
 const third = RationalMoney.of(100, 'EUR').dividedBy(3); // '100/3 EUR', no rounding yet
 third.plus(third).plus(third).toMoney(); // 100.00 EUR — three rounded thirds would give 99.99
 third.times('1.19').toMoney({ rounding: 'halfEven' }); // 39.67 EUR, rounded once
 
+const fx = createConverter(ratesFrom({ base: 'EUR', rates: { USD: '1.0832', GBP: '0.8571' } }), { inverse: true });
 const wallet = MoneyBag.of(money('1.07', 'USD'), money('1.06', 'GBP')); // two balances, never one fake total
 wallet.convert(fx, 'EUR', { rounding: 'halfEven' }); // 2.22 EUR; rounding each balance first gives 2.23
 ```
@@ -161,7 +288,10 @@ A `RationalMoney` is an exact fraction of major units that keeps its currency, s
 ## Validation and databases
 
 ```ts
-import { anyMoneySchema, moneyInputSchema, moneySchema } from '@arki/money/zod';
+import { z } from 'zod';
+
+import { money } from '@arki/money';
+import { moneyInputSchema, moneySchema } from '@arki/money/zod';
 
 const order = z.object({ total: moneySchema('EUR', { min: money(0, 'EUR') }) });
 order.parse({ total: { amount: '19.99', currency: 'EUR' } }).total; // Money<'EUR'>
@@ -169,6 +299,8 @@ moneyInputSchema('EUR', { locale: 'de-DE' }).parse('1.234,56 €'); // form fiel
 ```
 
 ```ts
+import { pgTable } from 'drizzle-orm/pg-core';
+
 import { moneyDecimal, moneyJson, moneyMinor } from '@arki/money/drizzle/pg'; // or /drizzle/mysql, /drizzle/sqlite
 
 const prices = pgTable('prices', {
@@ -188,28 +320,6 @@ SQLite drivers usually return numbers, which are exact up to 2^53 minor units. A
 
 The schemas take the JSON shape as input, so tRPC and oRPC clients infer what to send. The columns read text from every driver, so no value passes through a float, and writing another currency or a value that needs rounding throws. `zod` (4.x) and `drizzle-orm` (1.x) are optional peer dependencies, used only by their subpaths.
 
-## Errors
-
-Every deliberate failure extends `MathError` from `@arki/math`, so one `instanceof` catches both libraries. Money-only errors extend `MoneyError`: `CurrencyMismatchError`, `UnknownCurrencyError`, `ExchangeRateError`, `ProviderAmountError`. Shared ones: `RoundingNecessaryError`, `DivisionByZeroError`, `InvalidArgumentError`, `NumberFormatError`, `NumericRangeError`, `ResourceLimitError`, `EmptyDataError`, `UnsupportedFeatureError`.
-
-## Entry points
-
-| Import                                        | Contents                                                                       |
-| --------------------------------------------- | ------------------------------------------------------------------------------ |
-| `@arki/money`                                 | `Money`, `money`, `Currency`, `factor`, `sum`, `average`, `min`, `max`, errors |
-| `@arki/money/currency`                        | `Currency` alone                                                               |
-| `@arki/money/format`                          | `formatMoney`, `formatMoneyToParts`, `createMoneyFormatter`                    |
-| `@arki/money/exact`                           | `toDecimal`, `toRational` bridges to `@arki/math`                              |
-| `@arki/money/errors`                          | Error classes                                                                  |
-| `@arki/money/parse`                           | `parseMoney`, `createMoneyParser`                                              |
-| `@arki/money/exchange`                        | `exchangeRate`, `ratesFrom`, `convert`, `createConverter`, `Converter`         |
-| `@arki/money/provider`                        | `toProviderUnits`, `fromProviderUnits`                                         |
-| `@arki/money/rational`                        | `RationalMoney`, `isRationalMoney`                                             |
-| `@arki/money/bag`                             | `MoneyBag`                                                                     |
-| `@arki/money/zod`                             | `moneySchema`, `anyMoneySchema`, `moneyInputSchema`, `currencyCodeSchema`      |
-| `@arki/money/drizzle/pg`, `/mysql`, `/sqlite` | `moneyMinor`, `moneyDecimal`, `moneyJson`                                      |
-| `@arki/money/stripe`                          | `toStripe`, `toStripeAmount`, `fromStripeAmount`, `stripeRule`                 |
-
 ## Performance
 
 `bun run bench` compares against dinero.js v1, currency.js, big.js and the old `@arki/math/money`. Node 22, Apple Silicon, ns/op:
@@ -228,11 +338,99 @@ Amounts past 2^53 switch to `bigint` and stay exact; adding them costs about 29 
 
 `bun run size` bundles each entry point as an app would (minified, gzipped, `@arki/math` included) and fails past its budget. The core (`Money`, `Currency` with the full ISO table, errors) is 6.3 KB. Parsing adds 0.9 KB, conversion 0.6 KB, Stripe 0.1 KB, and `RationalMoney` 3.2 KB (the exact `Rational` type from `@arki/math`).
 
-## Runtime support
+<!-- bench:start -->
 
-Node 20+, Bun, Deno, modern browsers and React Native on Hermes V1 (React Native 0.86). `bun run test:runtimes` runs the same checks on all five; the Hermes leg needs a `hermes` binary (`HERMES_BIN`, build steps in `scripts/smoke-hermes.mjs`) and says so loudly when it is missing.
+## Benchmarks
 
-On Hermes for Apple platforms, `Intl.NumberFormat` has no `formatToParts` and formats number strings through a float. So `parseMoney` with a `locale` throws `UnsupportedFeatureError` (pass `symbols` instead), `formatMoneyToParts` throws, and `formatMoney` is exact up to 15 significant digits and throws beyond. Arithmetic, allocation, conversion, Stripe units and JSON work everywhere.
+Speed of `@arki/money` against dinero.js v1 and currency.js, the two money libraries most projects use, with big.js as a plain decimal baseline.
+
+Node v22.13.1 on Apple M2 Max, 2026-10-13. Median time per operation, lower is better.
+
+### add
+
+| Library                      | Time / op | vs fastest |
+| ---------------------------- | --------: | ---------: |
+| @arki/money                  |   11.4 ns |    fastest |
+| @arki/money (bigint, > 2^53) |  163.5 ns |     14.37× |
+| dinero.js v1                 |   2.89 µs |    254.24× |
+| currency.js                  |   1.79 µs |    157.39× |
+| big.js                       |  753.7 ns |     66.22× |
+
+### multiply by 1.0825 and round half-even
+
+| Library                       | Time / op | vs fastest |
+| ----------------------------- | --------: | ---------: |
+| @arki/money (prepared factor) |   98.2 ns |    fastest |
+| @arki/money (string factor)   |  469.4 ns |      4.78× |
+| dinero.js v1                  |   6.10 µs |     62.18× |
+| currency.js (half-up only)    |   2.19 µs |     22.34× |
+| big.js                        |  943.6 ns |      9.61× |
+
+### allocate 100 into [1, 1, 1]
+
+| Library                   | Time / op | vs fastest |
+| ------------------------- | --------: | ---------: |
+| @arki/money               |  869.6 ns |      4.25× |
+| @arki/money split(3)      |  204.6 ns |    fastest |
+| dinero.js v1              |  11.14 µs |     54.45× |
+| currency.js distribute(3) |   6.41 µs |     31.31× |
+
+### compare
+
+| Library                 | Time / op | vs fastest |
+| ----------------------- | --------: | ---------: |
+| @arki/money             |   33.7 ns |    fastest |
+| dinero.js v1 (lessThan) |   46.2 ns |      1.37× |
+| big.js                  |  220.4 ns |      6.54× |
+
+### construct from a string
+
+| Library                         | Time / op | vs fastest |
+| ------------------------------- | --------: | ---------: |
+| @arki/money                     |  367.3 ns |      4.18× |
+| @arki/money fromMinor           |   87.9 ns |    fastest |
+| dinero.js v1 (minor units only) |   1.74 µs |     19.84× |
+| currency.js                     |   2.37 µs |     27.01× |
+
+### sum of 1000
+
+| Library                  | Time / op | vs fastest |
+| ------------------------ | --------: | ---------: |
+| @arki/money sum()        |   8.71 µs |    fastest |
+| @arki/money reduce(plus) |  34.65 µs |      3.98× |
+
+### convert and round once
+
+| Library                           | Time / op | vs fastest |
+| --------------------------------- | --------: | ---------: |
+| @arki/money direct EUR→USD        |   1.23 µs |    fastest |
+| @arki/money cross USD→GBP via EUR |   2.08 µs |      1.70× |
+
+### parse and payment units
+
+| Library                                | Time / op | vs fastest |
+| -------------------------------------- | --------: | ---------: |
+| @arki/money parse de-DE (bound parser) |  10.86 µs |     20.04× |
+| @arki/money toStripeAmount             |  542.0 ns |    fastest |
+
+### format en-US
+
+| Library      | Time / op | vs fastest |
+| ------------ | --------: | ---------: |
+| @arki/money  |   1.44 µs |    fastest |
+| dinero.js v1 |  37.99 µs |     26.43× |
+| currency.js  |   1.54 µs |      1.07× |
+
+Read the rows with the contracts in mind:
+
+- Contracts differ, so read rows with care.
+- currency.js stores a float and rounds every result to 2 decimals.
+- dinero.js v1 stores safe-integer cents and rounds multiplication by default.
+- big.js is a decimal, not money: it has no currency and no allocation.
+- `@arki/money` keeps a currency on every value, refuses to mix currencies, and uses bigint minor units, so amounts beyond 2^53 stay exact.
+
+Reproduce with `bun run bench` in the package directory; regenerate this section with `bun run bench --write-readme`.
+<!-- bench:end -->
 
 ## License
 

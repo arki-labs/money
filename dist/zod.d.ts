@@ -46,7 +46,8 @@ export declare function anyMoneySchema(options?: AnyMoneySchemaOptions): z.ZodPi
 }>>;
 /**
  * A form field: locale text such as `'1.234,56 €'` → `Money<C>`, with the
- * strict rules of `@arki/money/parse`.
+ * strict rules of `@arki/money/parse`. A locale the runtime rejects throws here, when the
+ * schema is built: the schema is your code's.
  */
 export declare function moneyInputSchema<const C extends string>(currency: CurrencyLike<C>, options?: ParseOptions & Pick<MoneySchemaOptions<C>, 'min' | 'max'>): z.ZodPipe<z.ZodString, z.ZodTransform<Money<C>, string>>;
 /** An ISO 4217 code from the shipped table, such as `'EUR'`. */

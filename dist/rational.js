@@ -10,9 +10,10 @@
  * share.toMoney({ rounding: 'halfEven' });  // 39.67 EUR, rounded once
  * ```
  */
-import { InvalidArgumentError } from '@arki/math/errors';
 import { ratio } from '@arki/math/rational';
-import { assertSameCurrency, resolveCurrency, toCurrency } from './currency.js';
+import { assertSameCurrency, Currency, toCurrency } from './currency.js';
+import { InputTooLarge, InvalidMoneyShape, InvalidMoneyText, isMoneyFailure } from './failures.js';
+import { MAX_INPUT_LENGTH, parseDecimal, pow10 } from './internal/units.js';
 import { Money, toFraction } from './money.js';
 const BRAND = Symbol('RationalMoney');
 function fraction(value) {
@@ -21,6 +22,23 @@ function fraction(value) {
 }
 function toRationalAmount(value) {
     return value instanceof RationalMoney ? value.amount : ratio(BigInt(value.units), 10n ** BigInt(value.scale));
+}
+const RATIO_TEXT = /^([+-]?\d+)\/(\d+)$/;
+/** `'1/3'`, `'-7/2'` or plain decimal text (`'5'`, `'19.99'`) as an exact fraction, or a failure. */
+function readRatio(text) {
+    if (text.length > MAX_INPUT_LENGTH)
+        return InputTooLarge();
+    const match = RATIO_TEXT.exec(text);
+    if (match === null) {
+        const parsed = parseDecimal(text);
+        if (isMoneyFailure(parsed))
+            return parsed;
+        return ratio(BigInt(parsed.coefficient), BigInt(pow10(parsed.fraction)));
+    }
+    const denominator = BigInt(match[2] ?? '');
+    if (denominator === 0n)
+        return InvalidMoneyText();
+    return ratio(BigInt(match[1] ?? ''), denominator);
 }
 function refuseCoercion() {
     throw new TypeError('RationalMoney cannot be turned into a number implicitly; settle it with toMoney()');
@@ -55,16 +73,25 @@ export class RationalMoney {
     static zero(currency) {
         return new RationalMoney(ratio(0), toCurrency(currency), BRAND);
     }
-    /** Reads `{ amount: '1/3', currency: 'EUR' }`, as written by `toJSON`. */
+    /**
+     * Reads `{ amount: '1/3', currency: 'EUR' }`, as written by `toJSON`: a door for outside values,
+     * like `Money.fromJSON`. Returns `InvalidMoneyShape`, `UnknownCurrency`, `InvalidMoneyText` (also
+     * for a zero denominator) or `InputTooLarge` (text over 1000 characters) instead of throwing.
+     */
     static fromJSON(value, currencies) {
         if (typeof value !== 'object' || value === null || !('amount' in value) || !('currency' in value)) {
-            throw new InvalidArgumentError('Expected { amount: string, currency: string }');
+            return InvalidMoneyShape();
         }
-        const { amount, currency } = value;
-        if (typeof amount !== 'string' || typeof currency !== 'string') {
-            throw new InvalidArgumentError('Expected { amount: string, currency: string }');
-        }
-        return RationalMoney.of(amount, resolveCurrency(currency, currencies));
+        const { amount, currency: code } = value;
+        if (typeof amount !== 'string' || typeof code !== 'string')
+            return InvalidMoneyShape();
+        const currency = Currency.parse(code, currencies);
+        if (isMoneyFailure(currency))
+            return currency;
+        const exact = readRatio(amount);
+        if (isMoneyFailure(exact))
+            return exact;
+        return new RationalMoney(exact, currency, BRAND);
     }
     /** @internal */
     static create(amount, currency) {

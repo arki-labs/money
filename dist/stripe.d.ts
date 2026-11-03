@@ -10,13 +10,14 @@
  * - Other currencies with 2 ISO decimals: two decimals.
  *
  * Stripe documents no rule for currencies with 3 or 4 ISO decimals, so those
- * throw `ProviderAmountError` instead of being guessed. Whether your account
+ * throw `ProviderAmountError` (or return `ProviderAmount` when reading) instead of being guessed. Whether your account
  * can charge a currency, and its minimum and maximum amounts, are Stripe's to
  * enforce; this module only gets the units right.
  */
-import type { Currency, CurrencyLike } from './currency.js';
+import type { CurrencyLike } from './currency.js';
 import type { Money } from './money.js';
 import type { ProviderUnitRule } from './provider.js';
+import { Currency } from './currency.js';
 /** When Stripe's rules in this module were last checked. */
 export declare const STRIPE_RULES_VERSION = "2026-10-12";
 export type StripeOperation = 'charge' | 'payout';
@@ -27,8 +28,12 @@ export declare function stripeRule(currency: CurrencyLike, operation?: StripeOpe
  * Throws `ProviderAmountError` for a negative amount or one Stripe cannot express (`10.50 MGA`).
  */
 export declare function toStripeAmount(amount: Money, operation?: StripeOperation): number;
-/** `fromStripeAmount(1099, 'usd')` → `10.99 USD`. Accepts Stripe's lower-case codes. */
-export declare function fromStripeAmount(amount: number | bigint | string, currency: string | Currency, operation?: StripeOperation): Money;
+/**
+ * `fromStripeAmount(1099, 'usd')` → `10.99 USD`, for amounts read from Stripe. Accepts Stripe's
+ * lower-case codes. Returns `UnknownCurrency`, `ProviderAmount` (no Stripe rule, or an amount off
+ * the rule), `AmountOutOfRange`, `InputTooLarge` or `InvalidMoneyText` instead of throwing.
+ */
+export declare function fromStripeAmount(amount: number | bigint | string, currency: string | Currency, operation?: StripeOperation): import("@arki/failure").Failure<"money.input_too_large", undefined> | import("@arki/failure").Failure<"money.invalid_text", undefined> | import("@arki/failure").Failure<"money.out_of_range", undefined> | import("@arki/failure").Failure<"money.provider_amount", undefined> | import("@arki/failure").Failure<"money.unknown_currency", undefined> | Money<string>;
 /** The `{ amount, currency }` pair a Stripe request takes: `{ amount: 1099, currency: 'usd' }`. */
 export declare function toStripe(amount: Money, operation?: StripeOperation): {
     amount: number;

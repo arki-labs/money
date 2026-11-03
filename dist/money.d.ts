@@ -9,6 +9,9 @@
  *   compiler already rejects it: `Money<'EUR'>` cannot be added to `Money<'USD'>`.
  * - `allocate` and `split` return parts that add back to the whole exactly.
  * - A `Money` never becomes a float by accident: `+price` throws.
+ * - Builders (`money`, `Money.of`, `Money.fromMinor`) throw on bad input, because
+ *   their input is your code's. Outside values go through `Money.parse`,
+ *   `Money.fromJSON` or `parseMoney`, which return a failure from `failures.ts`.
  *
  * Speed: units are a plain `number` while they are a safe integer (up to 90
  * trillion in a two-decimal currency) and a `bigint` only beyond that. Values
@@ -16,8 +19,9 @@
  * frozen, because `Object.freeze` costs more per operation than the arithmetic.
  */
 import type { RoundingMode } from '@arki/math/rounding';
-import type { Currency, CurrencyLike } from './currency.js';
+import type { CurrencyLike } from './currency.js';
 import type { Units } from './internal/units.js';
+import { Currency } from './currency.js';
 export type { Units } from './internal/units.js';
 /** An exact decimal such as `@arki/math`'s `Decimal`: `coefficient × 10^-scale`. */
 export type DecimalLike = {
@@ -91,11 +95,16 @@ export declare class Money<C extends string = string> {
     /**
      * Reads what `toString()` writes: `'19.99 EUR'`, also `'EUR 19.99'`. Keeps the
      * text's decimals when there are more than the currency's (`'1.2345 EUR'`
-     * stays at scale 4). Pass `currencies` to resolve custom codes.
+     * stays at scale 4). Pass `currencies` to resolve custom codes. For outside
+     * text: returns `InvalidMoneyText`, `UnknownCurrency` or `InputTooLarge` instead of throwing.
      */
-    static parse(text: string, currencies?: readonly Currency[]): Money;
-    /** Reads `{ amount: '19.99', currency: 'EUR' }`, keeping the amount's decimals. Validates the shape. */
-    static fromJSON(value: unknown, currencies?: readonly Currency[]): Money;
+    static parse(text: string, currencies?: readonly Currency[]): import("@arki/failure").Failure<"money.input_too_large", undefined> | import("@arki/failure").Failure<"money.invalid_text", undefined> | import("@arki/failure").Failure<"money.unknown_currency", undefined> | Money<string>;
+    /**
+     * Reads `{ amount: '19.99', currency: 'EUR' }`, keeping the amount's decimals.
+     * Returns `InvalidMoneyShape`, `InvalidMoneyText`, `UnknownCurrency` or
+     * `InputTooLarge` instead of throwing.
+     */
+    static fromJSON(value: unknown, currencies?: readonly Currency[]): import("@arki/failure").Failure<"money.input_too_large", undefined> | import("@arki/failure").Failure<"money.invalid_shape", undefined> | import("@arki/failure").Failure<"money.invalid_text", undefined> | import("@arki/failure").Failure<"money.unknown_currency", undefined> | Money<string>;
     /** Comparator for sorting: `prices.sort(Money.compare)`. Throws on mixed currencies. */
     static compare(this: void, a: Money, b: Money): -1 | 0 | 1;
     /** Exact sum. Different scales are aligned upward, never rounded. */

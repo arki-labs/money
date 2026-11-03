@@ -11,8 +11,9 @@
  * ```
  */
 import type { Rational } from '@arki/math/rational';
-import type { Currency, CurrencyLike } from './currency.js';
+import type { CurrencyLike } from './currency.js';
 import type { Amount, FactorInput, MoneyJSON, MoneyOptions } from './money.js';
+import { Currency } from './currency.js';
 import { Money } from './money.js';
 /** Something with an exact value in a currency: a `Money` or a `RationalMoney`. */
 export type ExactMoney<C extends string = string> = Money<C> | RationalMoney<C>;
@@ -28,8 +29,12 @@ export declare class RationalMoney<C extends string = string> {
     static from<C extends string>(value: Money<C>): RationalMoney<C>;
     /** Zero in this currency. */
     static zero<const C extends string>(currency: CurrencyLike<C>): RationalMoney<C>;
-    /** Reads `{ amount: '1/3', currency: 'EUR' }`, as written by `toJSON`. */
-    static fromJSON(value: unknown, currencies?: readonly Currency[]): RationalMoney;
+    /**
+     * Reads `{ amount: '1/3', currency: 'EUR' }`, as written by `toJSON`: a door for outside values,
+     * like `Money.fromJSON`. Returns `InvalidMoneyShape`, `UnknownCurrency`, `InvalidMoneyText` (also
+     * for a zero denominator) or `InputTooLarge` (text over 1000 characters) instead of throwing.
+     */
+    static fromJSON(value: unknown, currencies?: readonly Currency[]): import("@arki/failure").Failure<"money.input_too_large", undefined> | import("@arki/failure").Failure<"money.invalid_shape", undefined> | import("@arki/failure").Failure<"money.invalid_text", undefined> | import("@arki/failure").Failure<"money.unknown_currency", undefined> | RationalMoney<string>;
     plus(other: ExactMoney<C>): RationalMoney<C>;
     minus(other: ExactMoney<C>): RationalMoney<C>;
     times(multiplier: FactorInput): RationalMoney<C>;

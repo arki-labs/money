@@ -20,6 +20,12 @@ export declare function decimalToDriver(value: Money, currency: Currency, scale:
 export declare function decimalFromDriver<C extends string>(value: string | number, currency: Currency<C>, scale: number): Money<C>;
 /** `{ amount, currency }` as JSON text. */
 export declare function jsonToDriver(value: Money): string;
-/** Reads JSON text, or an object for drivers that parse JSON columns themselves. */
+/**
+ * Reads JSON text, or an object for drivers that parse JSON columns themselves.
+ * Stored data that is not valid money throws (`SyntaxError`, `InvalidArgumentError`,
+ * `UnknownCurrencyError`, `NumberFormatError`), so the query rejects instead of
+ * returning a wrong amount: a Drizzle `fromDriver` has no failure channel, and
+ * `@arki/db`'s own columns throw on bad stored values the same way.
+ */
 export declare function jsonFromDriver(value: unknown, currencies: readonly Currency[] | undefined): Money;
 //# sourceMappingURL=columns.d.ts.map

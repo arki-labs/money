@@ -4,14 +4,51 @@
  * money-only failures also extend `MoneyError`. Wrong runtime types (a number
  * where a `Money` was required, or `money + 1`) throw the built-in `TypeError`.
  * Nothing here returns `NaN` or `null` as a hidden failure channel.
+ *
+ * Each class carries a stable `code` and a one-sentence `remediation`. Match
+ * on the code, never on the message. The money-only codes are listed in
+ * {@link MONEY_ERROR_CODES}; the shared classes keep their `ARKI_MATH_*` codes.
  */
 import { MathError } from '@arki/math/errors';
 export { DivisionByZeroError, EmptyDataError, InvalidArgumentError, MathError, NumberFormatError, NumericRangeError, ResourceLimitError, RoundingNecessaryError, UnsupportedFeatureError, } from '@arki/math/errors';
+/** Stable error codes of the failures that only `@arki/money` raises. */
+export const MONEY_ERROR_CODES = {
+    /**
+     * Two amounts in different currencies were combined or compared.
+     *
+     * @fix Convert both amounts to one currency first with `@arki/money/exchange`, then combine them.
+     * @verify cd packages/money && bun run vitest run src/errors.test.ts
+     */
+    currencyMismatch: 'ARKI_MONEY_E001',
+    /**
+     * The currency code is not in the ISO 4217 table and no custom currency was given.
+     *
+     * @fix Use an ISO 4217 code, or pass a `Currency.custom({ code, scale })` object instead of a code.
+     * @verify cd packages/money && bun run vitest run src/errors.test.ts
+     */
+    unknownCurrency: 'ARKI_MONEY_E002',
+    /**
+     * No exchange rate is known for the pair, or a rate is invalid.
+     *
+     * @fix Pass a rate for the pair, or opt in to `inverse` or `via` on the converter. Rates must be positive.
+     * @verify cd packages/money && bun run vitest run src/exchange.test.ts
+     */
+    exchangeRate: 'ARKI_MONEY_E003',
+    /**
+     * An amount cannot be expressed in a payment provider's units.
+     *
+     * @fix Round the amount to the provider's step first, or choose a currency the provider documents.
+     * @verify cd packages/money && bun run vitest run src/stripe.test.ts
+     */
+    providerAmount: 'ARKI_MONEY_E004',
+};
 /** Base class of the failures that only money can have. */
 export class MoneyError extends MathError {
 }
 /** Two amounts in different currencies were combined or compared. */
 export class CurrencyMismatchError extends MoneyError {
+    code = MONEY_ERROR_CODES.currencyMismatch;
+    remediation = 'Convert both amounts to one currency first, for example with an exchange rate.';
     /** Code of the currency on the left-hand side. */
     left;
     /** Code of the currency on the right-hand side. */
@@ -26,17 +63,24 @@ export class CurrencyMismatchError extends MoneyError {
 }
 /** The code is not in the shipped ISO 4217 table and no custom currency was supplied for it. */
 export class UnknownCurrencyError extends MoneyError {
-    code;
+    code = MONEY_ERROR_CODES.unknownCurrency;
+    remediation = 'Use a three-letter ISO 4217 code, or create the currency with Currency.custom().';
+    /** The currency code that was not found. */
+    currencyCode;
     constructor(code) {
         super(`Unknown currency ${JSON.stringify(code)}. ISO 4217 codes are three upper-case letters; ` +
             'for anything else create one with Currency.custom()');
-        this.code = code;
+        this.currencyCode = code;
     }
 }
 /** No exchange rate is known for the pair, or a rate is invalid (zero, negative, conflicting). */
 export class ExchangeRateError extends MoneyError {
+    code = MONEY_ERROR_CODES.exchangeRate;
+    remediation = 'Add a positive rate for the pair to the exchange table, or fix the conflicting rates.';
 }
 /** An amount cannot be expressed in a payment provider's units (fraction it does not accept, wrong step, unsupported currency). */
 export class ProviderAmountError extends MoneyError {
+    code = MONEY_ERROR_CODES.providerAmount;
+    remediation = 'Round the amount to a step the provider accepts, or use a currency the provider supports.';
 }
 //# sourceMappingURL=errors.js.map

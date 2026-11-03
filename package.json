@@ -1,6 +1,6 @@
 {
   "name": "@arki/money",
-  "version": "0.0.4",
+  "version": "0.2.0",
   "description": "Exact, fast money for every JavaScript runtime — amounts kept as whole units (plain numbers, bigint only when huge), a shipped ISO 4217 currency table, exact-or-throw rounding, fair allocation, and currencies checked by the type system.",
   "license": "MIT",
   "repository": {
@@ -115,11 +115,14 @@
     "!src/**/*.spec.*",
     "!src/**/__tests__/**",
     "README.md",
+    "docs/**",
+    "llms.txt",
     "LICENSE",
     "package.json"
   ],
   "dependencies": {
-    "@arki/math": "0.0.5"
+    "@arki/failure": "0.3.0",
+    "@arki/math": "0.2.0"
   },
   "peerDependencies": {
     "drizzle-orm": ">=1.0.0-rc.4 <2",

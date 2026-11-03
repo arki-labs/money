@@ -33,10 +33,22 @@ export declare class Currency<C extends string = string> {
     /**
      * The ISO 4217 currency with this upper-case code: `Currency.of('EUR')`.
      * Throws `UnknownCurrencyError` for anything not in the table, including `'eur'`.
+     * For codes your code writes; read a code from outside with `Currency.parse`.
      */
     static of<const C extends string>(code: C): Currency<C>;
-    /** The ISO 4217 currency with this numeric code: `Currency.fromNumeric('978')` or `(978)` → EUR. */
+    /**
+     * Reads a currency code from outside (a form, JSON, a provider payload): the
+     * currency in `currencies` with that code, else the ISO 4217 one. Returns the
+     * `UnknownCurrency` failure (`money.unknown_currency`) instead of throwing.
+     */
+    static parse<const C extends string>(code: C, currencies?: readonly Currency[]): Currency<C> | import("@arki/failure").Failure<"money.unknown_currency", undefined>;
+    /**
+     * The ISO 4217 currency with this numeric code: `Currency.fromNumeric('978')` or `(978)` → EUR.
+     * Throws `UnknownCurrencyError`; read a numeric code from outside with `Currency.parseNumeric`.
+     */
     static fromNumeric(numeric: string | number): Currency;
+    /** `Currency.fromNumeric` for outside values: returns `UnknownCurrency` instead of throwing. */
+    static parseNumeric(numeric: string | number): Currency<string> | import("@arki/failure").Failure<"money.unknown_currency", undefined>;
     /**
      * A currency that is not in ISO 4217: crypto, loyalty points, a withdrawn
      * currency you still hold data in. It is not registered anywhere; keep the
@@ -57,8 +69,8 @@ export declare class Currency<C extends string = string> {
 }
 /** Accepts a `Currency` or an ISO code. */
 export declare function toCurrency<C extends string>(currency: CurrencyLike<C>): Currency<C>;
-/** Finds a currency by code among `custom`, then in the ISO table. */
-export declare function resolveCurrency(code: string, custom: readonly Currency[] | undefined): Currency;
+/** `Currency.parse` for a builder: throws `UnknownCurrencyError` with the code cut to 32 characters. */
+export declare function requireCurrency(code: string, custom: readonly Currency[] | undefined): Currency;
 /** Throws `CurrencyMismatchError` unless the two are the same currency. */
 export declare function assertSameCurrency(a: Currency, b: Currency): void;
 //# sourceMappingURL=currency.d.ts.map

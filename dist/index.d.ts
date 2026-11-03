@@ -4,4 +4,5 @@ export { Factor, Money, average, factor, isMoney, max, min, money, sum } from '.
 export type { AllocateOptions, Amount, DecimalLike, FactorInput, MoneyJSON, MoneyOptions, RationalLike, RemainderPolicy, Units, } from './money.js';
 export * from './errors.js';
 export type { RoundingMode } from '@arki/math/rounding';
+export * from './failures.js';
 //# sourceMappingURL=index.d.ts.map
