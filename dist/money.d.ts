@@ -138,7 +138,11 @@ export declare class Money<C extends string = string> {
      * A negative amount is split like a positive one and each part re-signed.
      */
     allocate(ratios: readonly (number | bigint | string)[], options?: AllocateOptions): Money<C>[];
-    /** Splits into `parts` equal shares that differ by at most one unit: `money(10, 'EUR').split(3)` → `[3.34, 3.33, 3.33]`. */
+    /**
+     * Splits into `parts` equal shares that differ by at most one unit: `money(10, 'EUR').split(3)` → `[3.34, 3.33, 3.33]`.
+     * `parts` is a whole number from 1 to 10 000: fewer throws `InvalidArgumentError`, more throws `ResourceLimitError`
+     * (`allocate` takes at most 10 000 ratios the same way), so one call cannot build an unbounded array.
+     */
     split(parts: number, options?: AllocateOptions): Money<C>[];
     /** Compares values across scales (`1.5` equals `1.50`). Throws on mixed currencies. */
     compareTo(other: Money<C>): -1 | 0 | 1;

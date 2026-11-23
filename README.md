@@ -1,4 +1,4 @@
-Read-only mirror of `@arki/money` v0.2.0. Source and issues: arki-labs/arki. Docs: https://arki.dev/packages/money. Published 2026-11-03 with provenance https://www.npmjs.com/package/@arki/money/v/0.2.0#provenance.
+Read-only mirror of `@arki/money` v0.2.1. Source and issues: arki-labs/arki. Docs: https://arki.dev/packages/money. Published 2026-11-23 with provenance https://www.npmjs.com/package/@arki/money/v/0.2.1#provenance.
 
 # @arki/money
 
@@ -48,6 +48,18 @@ Node 20+, Bun, Deno, modern browsers and React Native on Hermes V1 (React Native
 
 On Hermes for Apple platforms, `Intl.NumberFormat` has no `formatToParts` and formats number strings through a float. So `parseMoney` with a `locale` throws `UnsupportedFeatureError` (pass `symbols` instead), `formatMoneyToParts` throws, and `formatMoney` is exact up to 15 significant digits and throws beyond. Arithmetic, allocation, conversion, Stripe units and JSON work everywhere.
 
+<!-- runtimes:start -->
+
+| Runtime | Result | Version tested        | Date (UTC) |
+| ------- | ------ | --------------------- | ---------- |
+| node    | pass   | v22.13.1              | 2026-11-05 |
+| bun     | pass   | 1.4.2                 | 2026-11-05 |
+| deno    | pass   | 2.9.8                 | 2026-11-05 |
+| browser | pass   | Chromium 156.0.8078.4 | 2026-11-05 |
+| hermes  | pass   | V1 250829098.0.17     | 2026-11-05 |
+
+<!-- runtimes:end -->
+
 ## Public imports
 
 | Import                                        | Contents                                                                             |
@@ -94,6 +106,10 @@ How to handle them:
 - **`CurrencyMismatchError`:** two currencies met. Convert first with `@arki/money/exchange`.
 - **`NumberFormatError` or `InvalidArgumentError` from input:** show the user the bad text and ask again. Do not retry.
 - **`ProviderAmountError`:** a provider amount cannot be sent as is (for example a 3-decimal currency on Stripe). Choose another currency or amount.
+
+## Observability
+
+Pure computation: its Drizzle column types only convert values and run no queries, so no spans or metrics.
 
 ## Limits
 
@@ -179,7 +195,7 @@ money(share, 'EUR', { rounding: 'halfEven' });
 
 ## Splitting
 
-`allocate(ratios, { remainder })` and `split(parts, { remainder })` always add back to the whole. Leftover units go to the parts whose exact share lost the most (`'largest'`, the default), or from the start (`'first'`) or end (`'last'`). A zero ratio never receives a unit. Ratios may be decimals: `allocate(['0.5', '0.25', '0.25'])`.
+`allocate(ratios, { remainder })` and `split(parts, { remainder })` always add back to the whole. Both make at most 10 000 parts: more throws `ResourceLimitError` (`split makes at most 10000 parts`), so one call cannot build an unbounded array. Leftover units go to the parts whose exact share lost the most (`'largest'`, the default), or from the start (`'first'`) or end (`'last'`). A zero ratio never receives a unit. Ratios may be decimals: `allocate(['0.5', '0.25', '0.25'])`.
 
 ## Currencies
 
